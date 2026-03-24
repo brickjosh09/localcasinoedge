@@ -202,6 +202,39 @@ def calculate_no_vig_line(prices: list[int]) -> list[float]:
     return [p / total for p in implied]
 
 
+async def fetch_and_store_sharp_lines(sports: list[str] | None = None) -> int:
+    """Fetch sharp lines and write them to Vercel Postgres. Returns count of rows written."""
+    import pg_writer
+
+    events = await fetch_all_sharp_lines(sports)
+    rows = []
+
+    for ev in events:
+        for mkt in ev.markets:
+            for side, sels in mkt.selections.items():
+                # Prefer Pinnacle, fall back to first available sharp book
+                sel = next((s for s in sels if s.book == PINNACLE), None) or (sels[0] if sels else None)
+                if not sel:
+                    continue
+                rows.append((
+                    ev.event_id,
+                    ev.sport,
+                    ev.home_team,
+                    ev.away_team,
+                    ev.commence_time,
+                    mkt.market_type,
+                    side,
+                    sel.price,
+                    sel.book,
+                ))
+
+    if rows:
+        pg_writer.insert_sharp_batch(rows)
+        log.info("Stored %d sharp line rows to Postgres", len(rows))
+
+    return len(rows)
+
+
 if __name__ == "__main__":
     import sys
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -212,16 +245,9 @@ if __name__ == "__main__":
         sys.exit(1)
 
     async def main():
-        # Test with just NBA
-        events = await fetch_all_sharp_lines(["basketball_nba"])
-        for ev in events[:3]:
-            print(f"\n{ev.away_team} @ {ev.home_team} ({ev.commence_time})")
-            for mkt in ev.markets:
-                print(f"  {mkt.market_type}:")
-                for side, sels in mkt.selections.items():
-                    pinnacle_sel = next((s for s in sels if s.book == PINNACLE), None)
-                    if pinnacle_sel:
-                        print(f"    {side}: {pinnacle_sel.price:+d} (Pinnacle)"
-                              + (f" [{pinnacle_sel.point}]" if pinnacle_sel.point else ""))
+        import pg_writer
+        pg_writer.init_schema()
+        count = await fetch_and_store_sharp_lines()
+        print(f"\nStored {count} sharp line rows to Postgres.")
 
     asyncio.run(main())

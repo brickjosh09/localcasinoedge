@@ -149,13 +149,7 @@ function parseOdds(price: unknown): number | null {
   return null;
 }
 
-export async function POST(req: NextRequest) {
-  // Protect with a secret so only our cron can trigger it
-  const auth = req.headers.get('authorization');
-  if (SCRAPE_SECRET && auth !== `Bearer ${SCRAPE_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+async function runScrape() {
   await initDb();
 
   const startTime = Date.now();
@@ -213,10 +207,30 @@ export async function POST(req: NextRequest) {
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  return NextResponse.json({
+  return {
     ok: true,
     casino_odds_inserted: casinoOddsInserted,
     sharp_odds_inserted: sharpOddsInserted,
     elapsed_seconds: elapsed,
-  });
+  };
+}
+
+// Vercel cron calls GET; manual/admin trigger uses POST
+export async function GET(req: NextRequest) {
+  // Vercel cron sends Authorization header with CRON_SECRET, or we use SCRAPE_SECRET
+  const auth = req.headers.get('authorization');
+  if (SCRAPE_SECRET && auth !== `Bearer ${SCRAPE_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const result = await runScrape();
+  return NextResponse.json(result);
+}
+
+export async function POST(req: NextRequest) {
+  const auth = req.headers.get('authorization');
+  if (SCRAPE_SECRET && auth !== `Bearer ${SCRAPE_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const result = await runScrape();
+  return NextResponse.json(result);
 }

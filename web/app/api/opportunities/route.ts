@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@vercel/postgres';
+import { db } from '@vercel/postgres';
 
 export const revalidate = 30;
 
@@ -20,10 +20,9 @@ export async function GET(req: NextRequest) {
   const sport = searchParams.get('sport');
 
   try {
-    // Casino stores selection as team name (e.g. "Phoenix Suns")
-    // Sharp odds store selection as 'home' or 'away'
-    // Join: sharp 'home' selection → e.home_team, sharp 'away' → e.away_team
-    const rows = await sql`
+    const client = await db.connect();
+
+    const queryText = `
       SELECT
         s.event_id as casino_event_id,
         s.casino_id,
@@ -45,7 +44,6 @@ export async function GET(req: NextRequest) {
         ORDER BY event_id, casino_id, market, selection, timestamp DESC
       ) s
       JOIN events e ON e.event_id = s.event_id
-      -- Map sharp 'home'/'away' to actual team names, join via team names
       JOIN (
         SELECT DISTINCT ON (home_team, away_team, market, selection)
           home_team, away_team, market, selection, odds, book,
@@ -58,9 +56,13 @@ export async function GET(req: NextRequest) {
           AND sh.market = s.market
           AND sh.team_name = s.selection
       WHERE e.start_time::timestamptz > NOW()
-        ${sport ? sql`AND e.sport = ${sport}` : sql``}
+        ${sport ? `AND e.sport = $1` : ''}
       ORDER BY e.start_time ASC
     `;
+
+    const params = sport ? [sport] : [];
+    const rows = await client.query(queryText, params);
+    client.release();
 
     const opportunities = [];
     for (const row of rows.rows) {
@@ -86,7 +88,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Sort by EV descending
     opportunities.sort((a, b) => b.ev_percent - a.ev_percent);
 
     return NextResponse.json({ opportunities, count: opportunities.length });

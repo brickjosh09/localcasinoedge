@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@vercel/postgres';
-import { initDb } from '../../lib/db';
+import { query } from '../../lib/db';
 
 const ODDS_API_KEY = process.env.ODDS_API_KEY;
 const SCRAPE_SECRET = process.env.SCRAPE_SECRET;
@@ -227,8 +226,6 @@ function parseOdds(price: unknown): number | null {
 }
 
 async function runScrape() {
-  await initDb();
-
   const startTime = Date.now();
   let casinoOddsInserted = 0;
   let sharpOddsInserted = 0;
@@ -242,15 +239,17 @@ async function runScrape() {
   for (const casino of casinos) {
     const rows = await scrapeCasino(casino.id, casino.url);
     for (const row of rows) {
-      await sql`
-        INSERT INTO events (event_id, sport, home_team, away_team, start_time, casino_id, last_seen)
-        VALUES (${row.eventId}, ${row.sport}, ${row.homeTeam}, ${row.awayTeam}, ${row.startTime}, ${casino.id}, NOW())
-        ON CONFLICT (event_id) DO UPDATE SET last_seen = NOW(), start_time = EXCLUDED.start_time
-      `;
-      await sql`
-        INSERT INTO odds_snapshots (event_id, casino_id, market, selection, odds, line)
-        VALUES (${row.eventId}, ${casino.id}, ${row.market}, ${row.selection}, ${row.odds}, ${row.line})
-      `;
+      await query(
+        `INSERT INTO events (event_id, sport, home_team, away_team, start_time, casino_id, last_seen)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (event_id) DO UPDATE SET last_seen = NOW(), start_time = EXCLUDED.start_time`,
+        [row.eventId, row.sport, row.homeTeam, row.awayTeam, row.startTime, casino.id]
+      );
+      await query(
+        `INSERT INTO odds_snapshots (event_id, casino_id, market, selection, odds, line)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [row.eventId, casino.id, row.market, row.selection, row.odds, row.line]
+      );
       casinoOddsInserted++;
     }
   }
@@ -263,18 +262,18 @@ async function runScrape() {
         for (const book of event.bookmakers) {
           for (const market of book.markets) {
             for (const outcome of market.outcomes) {
-              // Convert decimal to american if needed
               const odds = outcome.price > 10
-                ? outcome.price  // already american-ish
+                ? outcome.price
                 : outcome.price >= 2
                   ? Math.round((outcome.price - 1) * 100)
                   : Math.round(-100 / (outcome.price - 1));
 
-              await sql`
-                INSERT INTO sharp_odds (event_id, sport, home_team, away_team, start_time, market, selection, odds, book)
-                VALUES (${event.id}, ${sport}, ${event.home_team}, ${event.away_team}, ${event.commence_time},
-                        ${market.key}, ${outcome.name}, ${odds}, ${book.key})
-              `;
+              await query(
+                `INSERT INTO sharp_odds (event_id, sport, home_team, away_team, start_time, market, selection, odds, book)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [event.id, sport, event.home_team, event.away_team, event.commence_time,
+                 market.key, outcome.name, odds, book.key]
+              );
               sharpOddsInserted++;
             }
           }

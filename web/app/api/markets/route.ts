@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server';
-import { sql } from '@vercel/postgres';
+import { query } from '../../lib/db';
 
 export const revalidate = 60;
 
+function formatSport(key: string): string {
+  const map: Record<string, string> = {
+    basketball_nba: 'NBA Basketball',
+    basketball_ncaab: 'NCAAB / March Madness',
+    icehockey_nhl: 'NHL Hockey',
+    soccer_usa_mls: 'MLS Soccer',
+    americanfootball_nfl: 'NFL Football',
+    americanfootball_ncaaf: 'NCAA Football',
+    mma_mixed_martial_arts: 'MMA',
+  };
+  return map[key] ?? key;
+}
+
 export async function GET() {
   try {
-    const res = await sql`
+    const res = await query(`
       SELECT
         e.sport,
         COUNT(DISTINCT e.event_id) as event_count,
@@ -16,7 +29,7 @@ export async function GET() {
       WHERE e.start_time > NOW()
       GROUP BY e.sport
       ORDER BY event_count DESC
-    `;
+    `);
 
     const markets = res.rows.map(r => ({
       sport: r.sport,
@@ -31,27 +44,14 @@ export async function GET() {
       markets,
       regions: [
         {
-          id: "ms_gulf_coast",
-          name: "Mississippi Gulf Coast",
-          status: "active",
-          casinos: ["treasure_bay", "palace_casino"],
+          id: 'ms_gulf_coast',
+          name: 'Mississippi Gulf Coast',
+          status: 'active',
+          casinos: ['treasure_bay', 'palace_casino'],
         }
       ]
     });
   } catch {
     return NextResponse.json({ markets: [], regions: [] });
   }
-}
-
-function formatSport(key: string): string {
-  const map: Record<string, string> = {
-    basketball_nba: "NBA Basketball",
-    basketball_ncaab: "NCAAB / March Madness",
-    icehockey_nhl: "NHL Hockey",
-    soccer_usa_mls: "MLS Soccer",
-    americanfootball_nfl: "NFL Football",
-    americanfootball_ncaaf: "NCAA Football",
-    mma_mixed_martial_arts: "MMA",
-  };
-  return map[key] ?? key;
 }

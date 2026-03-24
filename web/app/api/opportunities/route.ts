@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@vercel/postgres';
+import { query } from '../../lib/db';
 
 export const revalidate = 30;
 
@@ -20,8 +20,6 @@ export async function GET(req: NextRequest) {
   const sport = searchParams.get('sport');
 
   try {
-    const client = await db.connect();
-
     const queryText = `
       SELECT
         s.event_id as casino_event_id,
@@ -61,15 +59,16 @@ export async function GET(req: NextRequest) {
     `;
 
     const params = sport ? [sport] : [];
-    const rows = await client.query(queryText, params);
-    client.release();
+    const rows = await query(queryText, params);
 
     const opportunities = [];
-    for (const row of rows.rows) {
-      const ev = calcEV(row.casino_odds, row.sharp_odds);
+    for (const row of rows.rows as Record<string, unknown>[]) {
+      const casinoOdds = Number(row.casino_odds);
+      const sharpOdds = Number(row.sharp_odds);
+      const ev = calcEV(casinoOdds, sharpOdds);
       if (ev < minEv) continue;
 
-      const trueProb = americanToProb(row.sharp_odds);
+      const trueProb = americanToProb(sharpOdds);
       const eventName = `${row.away_team} @ ${row.home_team}`;
 
       opportunities.push({

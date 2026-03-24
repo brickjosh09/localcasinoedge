@@ -13,15 +13,13 @@ log = logging.getLogger("sharp_lines")
 API_KEY = os.environ.get("ODDS_API_KEY", "")
 BASE_URL = "https://api.the-odds-api.com/v4"
 
-# Sports we care about (The Odds API sport keys)
+# Sports active right now (late March): NBA, NCAAB March Madness, NHL, MLS
+# NFL/NCAAF are offseason -- skip to save API credits
+# Add back full list when seasons resume
 SPORTS = [
     "basketball_nba",
     "basketball_ncaab",
     "icehockey_nhl",
-    "baseball_mlb",
-    "americanfootball_nfl",
-    "americanfootball_ncaaf",
-    "mma_mixed_martial_arts",
     "soccer_usa_mls",
 ]
 
@@ -122,7 +120,7 @@ def _parse_event(event_data: dict) -> SharpEvent:
 async def fetch_sport_odds(
     client: httpx.AsyncClient,
     sport: str,
-    markets: str = "h2h,spreads,totals",
+    markets: str = "h2h",
 ) -> list[SharpEvent]:
     """Fetch odds for a single sport from The Odds API."""
     if not API_KEY:

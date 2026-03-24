@@ -48,7 +48,22 @@ async function fetchSharpOdds(sport: string): Promise<OddsEvent[]> {
   return res.json();
 }
 
-// Simple IGT scraper for a casino
+type IgtNode = Record<string, unknown>;
+
+// Extract all market group IDs from IGT nav (uses ssln recursively)
+function extractGroupIds(node: unknown, found: string[] = []): string[] {
+  if (!node || typeof node !== 'object') return found;
+  const obj = node as IgtNode;
+  if (Array.isArray(obj.ssln)) {
+    for (const item of obj.ssln as IgtNode[]) {
+      if (item.id) found.push(String(item.id));
+      extractGroupIds(item, found);
+    }
+  }
+  return found;
+}
+
+// IGT scraper matching Python scraper's field names
 async function scrapeCasino(casinoId: string, baseUrl: string): Promise<Array<{
   eventId: string; sport: string; homeTeam: string; awayTeam: string;
   startTime: string; market: string; selection: string; odds: number; line: number | null;
@@ -59,55 +74,74 @@ async function scrapeCasino(casinoId: string, baseUrl: string): Promise<Array<{
   }> = [];
 
   try {
+    const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; LocalCasinoEdge/1.0)' };
     const navRes = await fetch(`${baseUrl}/cache/psbonav/1/UK/top.json`, {
+      headers,
       signal: AbortSignal.timeout(10000),
     });
     if (!navRes.ok) return results;
     const nav = await navRes.json();
 
-    const groups: string[] = [];
-    function extractGroups(node: unknown) {
-      if (!node || typeof node !== 'object') return;
-      const obj = node as Record<string, unknown>;
-      if (obj.id && obj.url) groups.push(obj.id as string);
-      if (Array.isArray(obj.children)) obj.children.forEach(extractGroups);
-      if (Array.isArray(obj.items)) obj.items.forEach(extractGroups);
-    }
-    extractGroups(nav);
-
-    // Limit to first 50 groups per scrape to avoid timeout
-    const toScrape = groups.slice(0, 50);
+    const groups = extractGroupIds(nav);
+    // Limit to first 40 groups per scrape to stay within serverless timeout
+    const toScrape = groups.slice(0, 40);
 
     for (const groupId of toScrape) {
       try {
         const mgRes = await fetch(`${baseUrl}/cache/psmg/1/UK/${groupId}.json`, {
+          headers,
           signal: AbortSignal.timeout(5000),
         });
         if (!mgRes.ok) continue;
-        const mg = await mgRes.json();
+        const mg = await mgRes.json() as IgtNode;
 
-        const events = mg.events ?? mg.data?.events ?? [];
+        // IGT uses 'el' for event list
+        const events = (mg.el ?? []) as IgtNode[];
         for (const event of events) {
-          const eventId = `${casinoId}:${event.id}`;
-          const sport = detectSport(event.competition?.name ?? '');
+          const eid = event.id ?? event.eid;
+          if (!eid) continue;
+          const eventId = `${casinoId}:${eid}`;
+
+          // cn = competition name, d = description, stt = start time
+          const compName = String(event.cn ?? event.cln ?? '');
+          const sport = detectSport(compName);
           if (!sport) continue;
 
-          for (const market of (event.markets ?? [])) {
-            const marketKey = normalizeMarket(market.name ?? '');
+          const desc = String(event.d ?? event.dn ?? '');
+          // IGT typically formats as "Away v Home" or "Away @ Home"
+          const parts = desc.split(/ [v@] /i);
+          const awayTeam = parts[0]?.trim() ?? '';
+          const homeTeam = parts[1]?.trim() ?? '';
+          const startTime = String(event.stt ?? event.start ?? '');
+
+          // mg = markets list (IGT: 'mk' or 'mkt')
+          const markets = (event.mk ?? event.mkt ?? event.mg ?? []) as IgtNode[];
+          for (const market of markets) {
+            const marketName = String(market.mn ?? market.mtn ?? market.n ?? '');
+            const marketKey = normalizeMarket(marketName);
             if (!marketKey) continue;
-            for (const sel of (market.selections ?? [])) {
-              const odds = parseOdds(sel.price);
+
+            // seln = selections
+            const selections = (market.seln ?? market.sel ?? market.s ?? []) as IgtNode[];
+            for (const sel of selections) {
+              // odc = decimal odds, prc = price, o = odds
+              const rawOdds = sel.odc ?? sel.prc ?? sel.o ?? sel.price;
+              const odds = parseOdds(rawOdds);
               if (!odds) continue;
+
+              const selName = String(sel.d ?? sel.dn ?? sel.n ?? sel.name ?? '');
+              const line = (sel.hdc != null ? Number(sel.hdc) : sel.handicap != null ? Number(sel.handicap) : null);
+
               results.push({
                 eventId,
                 sport,
-                homeTeam: event.homeTeam?.name ?? '',
-                awayTeam: event.awayTeam?.name ?? '',
-                startTime: event.startTime ?? event.start_time ?? '',
+                homeTeam,
+                awayTeam,
+                startTime,
                 market: marketKey,
-                selection: sel.name ?? '',
+                selection: selName,
                 odds,
-                line: sel.handicap ?? null,
+                line,
               });
             }
           }

@@ -20,23 +20,24 @@ export async function GET(req: NextRequest) {
   const sport = searchParams.get('sport');
 
   try {
-    // Join casino snapshots to sharp odds by matching team names + same day
-    // Casino event IDs differ from sharp line IDs, so we match on home_team + away_team + date
+    // Casino stores selection as team name (e.g. "Phoenix Suns")
+    // Sharp odds store selection as 'home' or 'away'
+    // Join: sharp 'home' selection → e.home_team, sharp 'away' → e.away_team
     const rows = await sql`
       SELECT
         s.event_id as casino_event_id,
         s.casino_id,
         s.market,
-        s.selection,
+        s.selection as casino_selection,
         s.odds as casino_odds,
         s.line,
-        s.timestamp as snap_time,
         e.sport,
         e.home_team,
         e.away_team,
         e.start_time,
         sh.odds as sharp_odds,
-        sh.book as sharp_book
+        sh.book as sharp_book,
+        sh.selection as sharp_side
       FROM (
         SELECT DISTINCT ON (event_id, casino_id, market, selection)
           event_id, casino_id, market, selection, odds, line, timestamp
@@ -44,19 +45,21 @@ export async function GET(req: NextRequest) {
         ORDER BY event_id, casino_id, market, selection, timestamp DESC
       ) s
       JOIN events e ON e.event_id = s.event_id
+      -- Map sharp 'home'/'away' to actual team names, join via team names
       JOIN (
         SELECT DISTINCT ON (home_team, away_team, market, selection)
-          home_team, away_team, market, selection, odds, book, start_time
+          home_team, away_team, market, selection, odds, book,
+          CASE WHEN selection = 'home' THEN home_team ELSE away_team END as team_name
         FROM sharp_odds
-        WHERE start_time > NOW()
+        WHERE start_time::timestamptz > NOW()
         ORDER BY home_team, away_team, market, selection, timestamp DESC
       ) sh ON sh.home_team = e.home_team
           AND sh.away_team = e.away_team
           AND sh.market = s.market
-          AND sh.selection = s.selection
-      WHERE e.start_time > NOW()
+          AND sh.team_name = s.selection
+      WHERE e.start_time::timestamptz > NOW()
         ${sport ? sql`AND e.sport = ${sport}` : sql``}
-      ORDER BY s.timestamp DESC
+      ORDER BY e.start_time ASC
     `;
 
     const opportunities = [];
@@ -72,7 +75,7 @@ export async function GET(req: NextRequest) {
         sport: row.sport,
         start_time: row.start_time,
         market: row.market,
-        selection: row.selection,
+        selection: row.casino_selection,
         casino_id: row.casino_id,
         casino_odds: row.casino_odds,
         line: row.line,
@@ -80,7 +83,6 @@ export async function GET(req: NextRequest) {
         sharp_book: row.sharp_book,
         true_prob: Math.round(trueProb * 10000) / 100,
         ev_percent: Math.round(ev * 100) / 100,
-        is_arb: false,
       });
     }
 

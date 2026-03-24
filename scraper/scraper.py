@@ -89,13 +89,20 @@ async def scrape_casino(client: httpx.AsyncClient, casino) -> int:
         # Flush Postgres every 200 snapshot rows
         if len(pg_snapshot_batch) >= 200:
             try:
+                # Deduplicate events by event_id before insert
+                seen = set()
+                unique_events = []
+                for row in pg_event_batch:
+                    if row[0] not in seen:
+                        seen.add(row[0])
+                        unique_events.append(row)
                 with pg_writer.get_conn() as conn:
                     with conn.cursor() as cur:
                         psycopg2.extras.execute_values(cur, """
-                            INSERT INTO events (event_id, sport, home_team, away_team, start_time, casino_id, last_seen)
+                            INSERT INTO events (event_id, sport, home_team, away_team, start_time, casino_id)
                             VALUES %s
-                            ON CONFLICT (event_id) DO UPDATE SET last_seen = NOW()
-                        """, pg_event_batch)
+                            ON CONFLICT (event_id) DO NOTHING
+                        """, unique_events)
                     conn.commit()
                 pg_event_batch.clear()
                 pg_writer.insert_snapshot_batch(pg_snapshot_batch)
@@ -108,14 +115,20 @@ async def scrape_casino(client: httpx.AsyncClient, casino) -> int:
 
     # Final flush
     try:
+        seen = set()
+        unique_events = []
+        for row in pg_event_batch:
+            if row[0] not in seen:
+                seen.add(row[0])
+                unique_events.append(row)
         with pg_writer.get_conn() as conn:
             with conn.cursor() as cur:
-                if pg_event_batch:
+                if unique_events:
                     psycopg2.extras.execute_values(cur, """
-                        INSERT INTO events (event_id, sport, home_team, away_team, start_time, casino_id, last_seen)
+                        INSERT INTO events (event_id, sport, home_team, away_team, start_time, casino_id)
                         VALUES %s
-                        ON CONFLICT (event_id) DO UPDATE SET last_seen = NOW()
-                    """, pg_event_batch)
+                        ON CONFLICT (event_id) DO NOTHING
+                    """, unique_events)
             conn.commit()
         if pg_snapshot_batch:
             pg_writer.insert_snapshot_batch(pg_snapshot_batch)

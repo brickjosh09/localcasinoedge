@@ -305,8 +305,8 @@ export default function LandingPage() {
     loadMarketData();
   }, [selectedMarket]);
 
-  const activeCasinos = casinos.filter((c) => c.status === 'active');
-  const comingSoonCasinos = casinos.filter((c) => c.status === 'coming_soon');
+  const activeCasinos = (casinos ?? []).filter((c) => c.status === 'active');
+  const comingSoonCasinos = (casinos ?? []).filter((c) => c.status === 'coming_soon');
   const activeMarket = markets.find((m) => m.id === selectedMarket);
 
   function handleSignup(e: React.FormEvent) {

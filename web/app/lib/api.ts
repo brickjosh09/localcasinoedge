@@ -85,7 +85,7 @@ export interface CasinoData {
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { next: { revalidate: 30 } });
+  const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }
@@ -102,7 +102,8 @@ export async function getOpportunities(params?: {
   if (params?.min_ev !== undefined) query.set('min_ev', String(params.min_ev));
   if (params?.sport) query.set('sport', params.sport);
   const qs = query.toString();
-  return apiFetch<Opportunity[]>(`/api/opportunities${qs ? `?${qs}` : ''}`);
+  const data = await apiFetch<{ opportunities: Opportunity[]; count: number }>(`/api/opportunities${qs ? `?${qs}` : ''}`);
+  return data.opportunities ?? [];
 }
 
 export async function getEvents(params?: {
@@ -125,11 +126,11 @@ export async function getOddsHistory(eventId: string): Promise<OddsHistory> {
 }
 
 export async function getMarkets(): Promise<MarketData[]> {
-  const data = await apiFetch<{ markets: MarketData[] }>('/api/markets');
-  return data.markets;
+  const data = await apiFetch<{ markets: MarketData[]; regions: string[] }>('/api/markets');
+  return data.markets ?? [];
 }
 
 export async function getCasinos(market: string): Promise<CasinoData[]> {
-  const data = await apiFetch<{ casinos: CasinoData[] }>(`/api/casinos?market=${encodeURIComponent(market)}`);
-  return data.casinos;
+  const data = await apiFetch<CasinoData[]>(`/api/casinos?market=${encodeURIComponent(market)}`);
+  return Array.isArray(data) ? data : [];
 }

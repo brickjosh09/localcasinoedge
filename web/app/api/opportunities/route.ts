@@ -37,9 +37,35 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const minEv = parseFloat(searchParams.get('min_ev') ?? '0');
   const sport = searchParams.get('sport');
+  const casinoFilter = searchParams.get('casino') ?? 'treasure_bay';
+  const marketFilter = searchParams.get('market') ?? 'moneyline';
 
   try {
     const casinoNames = await getCasinoNames();
+
+    // Build dynamic WHERE clauses with parameterized queries
+    const conditions: string[] = ["e.start_time::timestamptz > NOW()"];
+    const params: string[] = [];
+    let paramIdx = 1;
+
+    if (casinoFilter) {
+      conditions.push(`s.casino_id = $${paramIdx}`);
+      params.push(casinoFilter);
+      paramIdx++;
+    }
+    if (marketFilter) {
+      conditions.push(`s.market = $${paramIdx}`);
+      params.push(marketFilter);
+      paramIdx++;
+    }
+    if (sport) {
+      conditions.push(`e.sport = $${paramIdx}`);
+      params.push(sport);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.join(' AND ');
+
     const queryText = `
       SELECT
         s.event_id as casino_event_id,
@@ -73,12 +99,10 @@ export async function GET(req: NextRequest) {
           AND sh.away_team = e.away_team
           AND sh.market = s.market
           AND sh.team_name = s.selection
-      WHERE e.start_time::timestamptz > NOW()
-        ${sport ? `AND e.sport = $1` : ''}
+      WHERE ${whereClause}
       ORDER BY e.start_time ASC
     `;
 
-    const params = sport ? [sport] : [];
     const rows = await query(queryText, params);
 
     const opportunities = [];

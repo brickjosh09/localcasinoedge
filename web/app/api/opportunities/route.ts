@@ -71,6 +71,14 @@ export async function GET(req: NextRequest) {
       const trueProb = americanToProb(sharpOdds);
       const eventName = `${row.away_team} @ ${row.home_team}`;
 
+      // true_prob as a 0-1 fraction (frontend formatProb does *100)
+      const isArb = ev >= 100;
+      const arbProfit = isArb
+        ? (1 / americanToProb(casinoOdds) + 1 / americanToProb(sharpOdds) < 1
+            ? (1 - (americanToProb(casinoOdds) + americanToProb(sharpOdds))) * 100
+            : 0)
+        : 0;
+
       opportunities.push({
         event: eventName,
         sport: row.sport,
@@ -78,12 +86,15 @@ export async function GET(req: NextRequest) {
         market: row.market,
         selection: row.casino_selection,
         casino_id: row.casino_id,
-        casino_odds: row.casino_odds,
-        line: row.line,
-        sharp_odds: row.sharp_odds,
+        tb_odds: casinoOdds,
+        tb_line: row.line !== null && row.line !== undefined ? Number(row.line) : null,
+        sharp_odds: sharpOdds,
         sharp_book: row.sharp_book,
-        true_prob: Math.round(trueProb * 10000) / 100,
+        sharp_line: null,
+        true_prob: trueProb,
         ev_percent: Math.round(ev * 100) / 100,
+        is_arb: isArb,
+        arb_profit: Math.round(arbProfit * 100) / 100,
       });
     }
 

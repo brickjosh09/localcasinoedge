@@ -14,12 +14,32 @@ function calcEV(casinoOdds: number, sharpOdds: number): number {
   return (trueProb * payout - (1 - trueProb)) * 100;
 }
 
+// Casino ID -> display name mapping
+const CASINO_NAMES: Record<string, string> = {
+  treasure_bay: 'Treasure Bay',
+  palace_casino: 'Palace Casino',
+};
+
+async function getCasinoNames(): Promise<Record<string, string>> {
+  try {
+    const res = await query('SELECT id, name FROM casinos');
+    const map: Record<string, string> = { ...CASINO_NAMES };
+    for (const row of res.rows as { id: string; name: string }[]) {
+      map[row.id] = row.name;
+    }
+    return map;
+  } catch {
+    return CASINO_NAMES;
+  }
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const minEv = parseFloat(searchParams.get('min_ev') ?? '0');
   const sport = searchParams.get('sport');
 
   try {
+    const casinoNames = await getCasinoNames();
     const queryText = `
       SELECT
         s.event_id as casino_event_id,
@@ -79,13 +99,15 @@ export async function GET(req: NextRequest) {
             : 0)
         : 0;
 
+      const casinoId = String(row.casino_id);
       opportunities.push({
         event: eventName,
         sport: row.sport,
         start_time: row.start_time,
         market: row.market,
         selection: row.casino_selection,
-        casino_id: row.casino_id,
+        casino_id: casinoId,
+        casino_name: casinoNames[casinoId] || casinoId,
         tb_odds: casinoOdds,
         tb_line: row.line !== null && row.line !== undefined ? Number(row.line) : null,
         sharp_odds: sharpOdds,

@@ -13,6 +13,8 @@ export interface Opportunity {
   start_time: string;
   market: string;
   selection: string;
+  casino_id: string;
+  casino_name: string;
   tb_odds: number;
   tb_line: number | null;
   sharp_odds: number;

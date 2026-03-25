@@ -513,10 +513,10 @@ function DashboardContent() {
                 <div className="space-y-3">
                   {evOpps.map((opp, i) => (
                     <OpportunityCard
-                      key={`${opp.event}-${opp.market}-${opp.selection}-${i}`}
+                      key={`${opp.event}-${opp.market}-${opp.selection}-${opp.casino_id}-${i}`}
                       opp={opp}
                       isBest={i === bestEVIndex}
-                      casinoName={casinoDisplayName}
+                      casinoName={opp.casino_name || casinoDisplayName}
                     />
                   ))}
                 </div>
@@ -535,7 +535,7 @@ function DashboardContent() {
                 </div>
                 <div className="space-y-3">
                   {arbOpps.map((opp, i) => (
-                    <OpportunityCard key={`arb-${opp.event}-${opp.market}-${i}`} opp={opp} casinoName={casinoDisplayName} />
+                    <OpportunityCard key={`arb-${opp.event}-${opp.market}-${opp.casino_id}-${i}`} opp={opp} casinoName={opp.casino_name || casinoDisplayName} />
                   ))}
                 </div>
               </section>
